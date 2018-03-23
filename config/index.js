@@ -43,7 +43,7 @@ module.exports = {
         // Paths
         assetsRoot: path.resolve(__dirname, '../dist'),
         assetsSubDirectory: 'static',
-        assetsPublicPath: '/',
+        assetsPublicPath: '/dummy-spa-calc-fractions-and-websocket/',
 
         /**
          * Source Maps
