@@ -105,7 +105,7 @@
         }),
         computed: {
             result() {
-                if (this.errors.items) {
+                if (this.errors && this.errors.items && this.errors.items.length) {
                     return ['', ''];
                 }
                 try {
