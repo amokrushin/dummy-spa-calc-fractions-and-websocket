@@ -2,11 +2,24 @@
     <div>
         <h1>Websocket</h1>
 
-        <div>
-            <ul class="comments">
+        <div class="comments-wrapper">
+            <ul class="comments-list">
                 <li v-for="comment in comments" :key="comment.id" class="comment">
                     <div v-text="comment.message" class="message"></div>
-                    <button @click="removeCommentRequest(comment.id)" class="action">Удалить</button>
+
+                    <button
+                        class="action"
+                        @click="removeCommentRequest(comment.id)"
+                        :disabled="!comment.synced"
+                    >
+                        Удалить
+                    </button>
+                </li>
+                <li v-if="error" class="error-overlay">
+                    <div class="error-message" v-text="error.message"></div>
+                    <div>
+                        <a href="#" @click.prevent="reloadPage">Reload page</a>
+                    </div>
                 </li>
             </ul>
         </div>
@@ -16,13 +29,39 @@
 <script lang="babel" type="text/babel">
     const WS_URI = 'ws://echo.websocket.org/';
 
+    function withEmulatedDelay(handler, min, max) {
+        return function (message) {
+            const delay = Math.ceil(Math.random() * (max - min) + min);
+            setTimeout(() => handler(message), delay);
+        };
+    }
+
+    function withEmulatedFailure(handler) {
+        return function (data) {
+            const message = JSON.parse(data);
+            if (message.commentId === 9) {
+                handler();
+                return;
+            }
+            if (message.commentId === 10) {
+                handler(JSON.stringify({ error: { code: 500, message: 'foo' } }));
+                return;
+            }
+            handler(data);
+        };
+    }
+
+    function mapAssignState(collection, state) {
+        return collection.map(item => ({ ...item, ...state }));
+    }
+
     export default {
         data: () => ({
             ws: {
                 connected: false,
                 error: false,
             },
-            comments: [
+            comments: mapAssignState([
                 { id: 1, message: 'Тестовый коммент' },
                 { id: 2, message: 'Это шедевр' },
                 { id: 3, message: 'Это прекрасно' },
@@ -33,10 +72,11 @@
                 { id: 8, message: 'Это прекрасно' },
                 { id: 9, message: 'Лучшее, что я видел' },
                 { id: 10, message: 'Два чая этому автору' },
-            ],
+            ], { synced: true }),
+            error: null,
         }),
         mounted() {
-            this.$ws = new WebSocket(WS_URI);
+            this.$ws = Object.freeze(new WebSocket(WS_URI));
             this.$ws.onopen = () => {
                 this.ws.connected = true;
                 console.log('[WebSocket]', 'connected to', WS_URI);
@@ -52,20 +92,53 @@
                 console.error('[WebSocket]', 'error');
                 this.ws.error = true;
             };
+
+            this.handleWsResponse = this.handleWsResponse.bind(this);
+            this.handleWsResponse = withEmulatedDelay(this.handleWsResponse, 0, 5000);
+            this.handleWsResponse = withEmulatedFailure(this.handleWsResponse);
         },
         methods: {
-            handleWsResponse(message) {
-                const commentId = Number(message);
-                this.removeCommentCommit(commentId);
+            handleWsResponse(data) {
+                let message;
+                try {
+                    message = JSON.parse(data);
+                } catch (err) {
+                    this.error = new Error('Server return invalid message');
+                    return;
+                }
+                if (typeof message !== 'object') {
+                    this.error = new Error('Server return invalid response');
+                    return;
+                }
+                if (message.error) {
+                    this.error = new Error(`Server return error: ${message.error.message}`);
+                    return;
+                }
+                switch (message.action) {
+                    case 'removeComment':
+                        this.removeCommentCommit(message.commentId);
+                        break;
+                    default:
+                        this.error = new Error('Server return invalid action');
+                }
             },
             sendWsRequest(message) {
                 if (!this.ws.connected) {
                     console.error('WebSocket not connected');
                 }
-                this.$ws.send(message);
+                const data = JSON.stringify(message);
+                this.$ws.send(data);
             },
+
             removeCommentRequest(commentId) {
-                this.sendWsRequest(commentId);
+                const comment = this.comments.find(comment => comment.id === commentId);
+                if (comment) {
+                    comment.synced = false;
+                    this.sendWsRequest({
+                        action: 'removeComment',
+                        commentId,
+                    });
+                }
             },
             removeCommentCommit(commentId) {
                 const comment = this.comments.find(c => c.id === commentId);
@@ -75,6 +148,9 @@
                 } else {
                     console.error(`Comment with id=${id} not found`);
                 }
+            },
+            reloadPage() {
+                window.location.reload();
             },
         },
         beforeDestroy() {
@@ -86,12 +162,20 @@
 </script>
 
 <style scoped>
-    .comments {
-        max-width : 400px;
+    .comments-wrapper {
+        display         : flex;
+        justify-content : center;
+    }
+
+    .comments-list {
+        display        : flex;
+        width          : 400px;
+        position       : relative;
+        flex-direction : column;
     }
 
     .comment {
-        display         : flex;
+        display : flex;
     }
 
     .message {
@@ -102,5 +186,22 @@
 
     .action {
         justify-self : flex-end;
+    }
+
+    .error-overlay {
+        position         : absolute;
+        top              : 0;
+        left             : 0;
+        bottom           : 0;
+        right            : 0;
+        background-color : rgba(255, 255, 255, 0.95);
+        display          : flex;
+        justify-content  : center;
+        align-items      : center;
+        flex-direction   : column;
+    }
+
+    .error-message {
+        color : red;
     }
 </style>
